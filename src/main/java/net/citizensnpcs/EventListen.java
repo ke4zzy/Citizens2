@@ -1,5 +1,6 @@
 package net.citizensnpcs;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -30,9 +31,13 @@ import net.citizensnpcs.trait.CurrentLocation;
 import net.citizensnpcs.util.Messages;
 import net.citizensnpcs.util.NMS;
 
+import net.minecraft.server.v1_8_R2.EntityPlayer;
+import net.minecraft.server.v1_8_R2.PacketPlayOutPlayerInfo;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
+import org.bukkit.craftbukkit.v1_8_R2.entity.CraftPlayer;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -49,6 +54,7 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.vehicle.VehicleEnterEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
@@ -60,6 +66,7 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
+import org.bukkit.scheduler.BukkitRunnable;
 
 public class EventListen implements Listener {
     private final NPCRegistry npcRegistry = CitizensAPI.getNPCRegistry();
@@ -270,6 +277,41 @@ public class EventListen implements Listener {
         Player player = event.getPlayer();
         NPCRightClickEvent rightClickEvent = new NPCRightClickEvent(npc, player);
         Bukkit.getPluginManager().callEvent(rightClickEvent);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        final Player player = event.getPlayer();
+        Location location = player.getLocation().getBlock().getLocation();
+        final List<EntityPlayer> nearbyNPCs = new ArrayList<EntityPlayer>();
+        for (NPC npc : getAllNPCs()) {
+            Entity npcEntity = npc.getEntity();
+            if (npcEntity instanceof Player && player.canSee((Player) npcEntity)) {
+                nearbyNPCs.add(((CraftPlayer) npcEntity).getHandle());
+            }
+        }
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!player.isValid())
+                    return;
+                for (EntityPlayer nearbyNPC : nearbyNPCs) {
+                    NMS.sendPacket(player, new PacketPlayOutPlayerInfo(
+                            PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, nearbyNPC));
+                }
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (!player.isValid())
+                            return;
+                        for (EntityPlayer nearbyNPC : nearbyNPCs) {
+                            NMS.sendPacket(player, new PacketPlayOutPlayerInfo(
+                                    PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, nearbyNPC));
+                        }
+                    }
+                }.runTaskLater(CitizensAPI.getPlugin(), 2);
+            }
+        }.runTaskLater(CitizensAPI.getPlugin(), 40);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
